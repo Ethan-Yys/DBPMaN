@@ -28,7 +28,7 @@ for key in user_map:
     sorted_user_bh = sorted(user_map[key], key=lambda x: x[1])
     for line, t in sorted_user_bh:
         items = line.split("\t")
-        asin = items[1]
+        asin = items[1]  # ItemId
         j = 0
         while True:
             asin_neg_index = random.randint(0, len(item_list) - 1)
