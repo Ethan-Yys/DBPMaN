@@ -1,27 +1,30 @@
 import random
 
-file = './Taobao_data.csv'
-fi = open(file, 'r')
-fi.readline()
+file = './UserBehavior.csv'
+
 item_list = []
 user_map = {}
-fi = open(file, 'r')
-fi.readline()
-for line in fi:
-    item = line.strip().split(',')
-    if item[0] not in user_map:
-        user_map[item[0]]=[]
-    user_map[item[0]].append(("\t".join(item), float(item[-1])))
-    item_list.append(item[1])
 
 fi = open(file, 'r')
 fi.readline()
+# UserID,ItemID,CategoryID,BehvaiorType,Timestamp
+
+fi = open(file, "r")
+for line in fi:
+
+    item = line.strip().split(',')
+    if item[0] not in user_map:
+        user_map[item[0]] = []
+    user_map[item[0]].append(("\t".join(item), float(item[-1])))
+    item_list.append(item[1])
+
+
+fi = open(file, 'r')
 meta_map = {}  # meta_map记录item_category映射
 for line in fi:
     arr = line.strip().split(",")
     if arr[1] not in meta_map:
         meta_map[arr[1]] = arr[2]
-
 
 fo = open("jointed-new", "w")
 for key in user_map:
@@ -61,14 +64,14 @@ for line in fi:
     line = line.strip()
     user = line.split("\t")[1]
     if user == last_user:
-        if i < user_count[user] - 2:  # 1 + negative samples
+        if i < user_count[user] - 20:  # 1 + negative samples
             print("20180118" + "\t" + line, file=fo)
         else:
             print("20190119" + "\t" + line, file=fo)
     else:
         last_user = user
         i = 0
-        if i < user_count[user] - 2:
+        if i < user_count[user] - 20:
             print("20180118" + "\t" + line, file=fo)
         else:
             print("20190119" + "\t" + line, file=fo)
@@ -76,10 +79,10 @@ for line in fi:
 
 
 fin = open("jointed-new-split-info", "r")
-ftrain = open("/opt/local_train", "w")
-ftest = open("/opt/local_test", "w")
+ftrain = open("local_train", "w")
+ftest = open("local_test", "w")
 
-last_user = "0"
+last_user = "XXXXXXX"
 common_fea = ""
 line_idx = 0
 for line in fin:
@@ -88,8 +91,8 @@ for line in fin:
     clk = int(items[1]) #标记正负样本
     user = items[2]
     movie_id = items[3]
-    dt = items[5] #标记时间戳
-    cat1 = items[6]  #标记类别（如book）
+    dt = items[6] #标记时间戳
+    cat1 = items[7]  #标记类别
 
     if ds=="20180118":
         fo = ftrain
@@ -111,7 +114,7 @@ for line in fin:
         #     mid_str += mid + ","
         # if len(cat_str) > 0: cat_str = cat_str[:-1]
         # if len(mid_str) > 0: mid_str = mid_str[:-1]
-        if history_clk_num >= 1:    # 8 is the average length of user behavior
+        if history_clk_num >= 1:
             if tag == 1:
                 print(items[1] + "\t" + user + "\t" + movie_id + "\t" + cat1 +"\t" + ','.join(movie_id_list[-100:]) + "\t" + ','.join(cate1_list[-100:]), file=fo)
             else:
