@@ -208,8 +208,8 @@ class Model(object):
             self.mask: inps[5],
             self.mid_sess_his: inps[6],
             self.cat_sess_his: inps[7],
-            self.mid_sess_tgt:inps[8],
-            self.cat_sess_tgt:inps[9],
+            self.mid_sess_tgt: inps[8],
+            self.cat_sess_tgt: inps[9],
             self.sess_mask: inps[10],
             self.fin_mid_sess: inps[11],
             self.fin_cat_sess: inps[12],
@@ -250,10 +250,10 @@ class Model(object):
         print('model restored from %s' % path)
 
 
-class Model_DDPM(Model):
+class Model_DBPMaN(Model):
     def __init__(self, n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE, use_negsampling=False,
                  use_softmax=True):
-        super(Model_DDPM, self).__init__(n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE,
+        super(Model_DBPMaN, self).__init__(n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE,
                                         ATTENTION_SIZE,
                                         use_negsampling, use_softmax=use_softmax)
         self.mid_sess_his_eb = tf.nn.embedding_lookup(self.mid_embeddings_var,self.mid_sess_his)  # [1024, 18, 10, eb]

@@ -160,8 +160,8 @@ def train(
                                   label_type=label_type)
         test_data = DataIterator(test_file, uid_voc, mid_voc, cat_voc, batch_size, maxlen, label_type=label_type)
         n_uid, n_mid, n_cat = train_data.get_n()
-        if model_type == 'DDPM':
-            model = Model_DDPM(n_uid, n_mid, n_cat, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE)
+        if model_type == 'DBPMaN':
+            model = Model_DBPMaN(n_uid, n_mid, n_cat, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE)
         else:
             print("Invalid model_type : %s" % model_type)
             return
