@@ -183,6 +183,9 @@ def generate_mapid_pkl(in_file, uid_pkl, mid_pkl, cid_pkl):
 
 if __name__ == '__main__':
     generate_neg_sample('UserBehavior.csv', 'joint-new')
+    print('neg sample finished')
     generate_split_data_tag('joint-new', 'joint-new-split-info')
+    print('split tag finished')
     split_data('joint-new-split-info', 'local_train', 'local_test')
     generate_mapid_pkl('joint-new', "uid_voc.pkl", "mid_voc.pkl", "cat_voc.pkl")
+    print('map id pkl finished')
