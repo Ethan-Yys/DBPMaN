@@ -23,7 +23,7 @@ def load_dict(filename):
     except:
         try:
             with open(filename, 'rb') as f:
-                return unicode_to_utf8(pkl.load(f))
+                return pkl.load(f)
         except:
             with open(filename, 'rb') as f:
                 return dict_unicode_to_utf8(pkl.load(f))
@@ -60,24 +60,24 @@ class DataIterator:
         for source_dict in [uid_voc, mid_voc, cat_voc]:
             self.source_dicts.append(load_dict(source_dict))
 
-        f_meta = open("item-info", "r")
-        meta_map = {}
-        for line in f_meta:
-            arr = line.strip().split("\t")
-            if arr[0] not in meta_map:
-                meta_map[arr[0]] = arr[1]
-        self.meta_id_map = {}
-        for key in meta_map:
-            val = meta_map[key]
-            if key in self.source_dicts[1]:
-                mid_idx = self.source_dicts[1][key]
-            else:
-                mid_idx = 0
-            if val in self.source_dicts[2]:
-                cat_idx = self.source_dicts[2][val]
-            else:
-                cat_idx = 0
-            self.meta_id_map[mid_idx] = cat_idx
+        # f_meta = open("item-info", "r")
+        # meta_map = {}
+        # for line in f_meta:
+        #     arr = line.strip().split("\t")
+        #     if arr[0] not in meta_map:
+        #         meta_map[arr[0]] = arr[1]
+        # self.meta_id_map = {}
+        # for key in meta_map:
+        #     val = meta_map[key]
+        #     if key in self.source_dicts[1]:
+        #         mid_idx = self.source_dicts[1][key]
+        #     else:
+        #         mid_idx = 0
+        #     if val in self.source_dicts[2]:
+        #         cat_idx = self.source_dicts[2][val]
+        #     else:
+        #         cat_idx = 0
+        #     self.meta_id_map[mid_idx] = cat_idx
 
         self.batch_size = batch_size
         self.maxlen = maxlen
