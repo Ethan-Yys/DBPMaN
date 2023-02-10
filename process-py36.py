@@ -1,6 +1,6 @@
 import random
 import pickle as pkl
-
+import sys
 
 def generate_neg_sample(in_file, out_file):
     item_list = []
@@ -184,8 +184,11 @@ def generate_mapid_pkl(in_file, uid_pkl, mid_pkl, cid_pkl):
 if __name__ == '__main__':
     generate_neg_sample('UserBehavior.csv', 'joint-new')
     print('neg sample finished')
+    sys.stdout.flush()
     generate_split_data_tag('joint-new', 'joint-new-split-info')
     print('split tag finished')
+    sys.stdout.flush()
     split_data('joint-new-split-info', 'local_train', 'local_test')
+    sys.stdout.flush()
     generate_mapid_pkl('joint-new', "uid_voc.pkl", "mid_voc.pkl", "cat_voc.pkl")
     print('map id pkl finished')
