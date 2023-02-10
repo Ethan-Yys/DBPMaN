@@ -145,10 +145,10 @@ def train(
         uid_voc="uid_voc.pkl",
         mid_voc="mid_voc.pkl",
         cat_voc="cat_voc.pkl",
-        batch_size=2,
+        batch_size=1024,
         maxlen=100,
-        test_iter=1,
-        save_iter=1000 * 5,
+        test_iter=500,
+        save_iter=100000,
         model_type='DNN',
         seed=2,
 ):
@@ -174,7 +174,7 @@ def train(
         start_time = time.time()
         iter = 0
         lr = 0.001
-        for itr in range(100):
+        for itr in range(1):
             print(itr)
             sys.stdout.flush()
             loss_sum = 0.0
@@ -183,18 +183,18 @@ def train(
             for src, tgt in train_data:
                 # print('batch_target = %d, itr=%d' % (len(tgt), itr))
                 # time1 = time.time()
-                print(itr, "data_prepare")
-                sys.stdout.flush()
+                # print(iter, "data_prepare")
+                # sys.stdout.flush()
                 uids, mids, cats, mid_his, cat_his, mid_mask, mid_sess_his, cat_sess_his, mid_sess_tgt, cat_sess_tgt, sess_mask, fin_mid_sess, fin_cat_sess, target, sl = prepare_data(
                     src, tgt, maxlen)
                 # time2 = time.time()
-                print(itr, "data_prepare_finished")
-                sys.stdout.flush()
+                # print(iter, "data_prepare_finished")
+                # sys.stdout.flush()
                 loss, acc, aux_loss = model.train(sess, [uids, mids, cats, mid_his, cat_his, mid_mask, mid_sess_his,
                                                          cat_sess_his, mid_sess_tgt, cat_sess_tgt, sess_mask,
                                                          fin_mid_sess, fin_cat_sess, target, sl, lr])
-                print(itr, "trained")
-                sys.stdout.flush()
+                # print(iter, "trained")
+                # sys.stdout.flush()
                 # time3 = time.time()
                 # print('loss_time')
                 # print(time3-time2)
