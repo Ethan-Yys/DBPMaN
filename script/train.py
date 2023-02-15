@@ -174,7 +174,11 @@ def train(
         start_time = time.time()
         iter = 0
         lr = 0.001
-        for itr in range(1):
+        for itr in range(100):
+            print("-------------------------")
+            print("-------------------------")
+            print("-------------------------")
+            print("----------itr-------------")
             print(itr)
             sys.stdout.flush()
             loss_sum = 0.0
