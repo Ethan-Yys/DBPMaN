@@ -44,7 +44,7 @@ def prepare_data(input, target, maxlen=100):
                 new_lengths_x.append(l_x)
         for l_sess, inp in zip(lengths_sess, input):
             if l_sess > 18:
-                new_seqs_mid_sess.append(inp[5][l_sess-18:])
+                new_seqs_mid_sess.append(inp[5][l_sess - 18:])
                 new_seqs_cat_sess.append(inp[6][l_sess - 18:])
                 new_seqs_mid_tgt.append(inp[7][l_sess - 18:])
                 new_seqs_cat_tgt.append(inp[8][l_sess - 18:])
@@ -160,7 +160,9 @@ def train(
                                   label_type=label_type)
         test_data = DataIterator(test_file, uid_voc, mid_voc, cat_voc, batch_size, maxlen, label_type=label_type)
         n_uid, n_mid, n_cat = train_data.get_n()
-        if model_type == 'DBPMaN':
+        if model_type == 'DDPM':
+            model = Model_DDPM(n_uid, n_mid, n_cat, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE)
+        elif model_type == 'DBPMaN':
             model = Model_DBPMaN(n_uid, n_mid, n_cat, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE)
         else:
             print("Invalid model_type : %s" % model_type)
@@ -171,7 +173,7 @@ def train(
         sys.stdout.flush()
 
         count()
-        start_time = time.time()
+        # start_time = time.time()
         iter = 0
         lr = 0.001
         for itr in range(100):
@@ -212,7 +214,7 @@ def train(
                 sys.stdout.flush()
                 if (iter % 50) == 0:
                     print('iter: %d ----> train_loss: %.4f ---- train_accuracy: %.4f ---- train_aux_loss: %.4f' % (
-                        iter, loss_sum / 100, accuracy_sum / 100, aux_loss_sum / 100))
+                        iter, loss_sum / 50, accuracy_sum / 50, aux_loss_sum / 50))
                     loss_sum = 0.0
                     accuracy_sum = 0.0
                     aux_loss_sum = 0.0
@@ -228,8 +230,13 @@ def train(
                 if (iter % save_iter) == 0:
                     print('save model iter: %d' % (iter))
                     model.save(sess, model_path + "--" + str(iter))
-
                 # lr *= 0.5
+
+            auc_, loss_, acc_, aux_ = eval(sess, test_data, model)
+            print(
+                    'iter: %d --- test_auc: %.4f ---- test_loss: %.4f ---- test_accuracy: %.4f ---- '
+                    'test_aux_loss: %.4f' % (
+                        iter, auc_, loss_, acc_, aux_))
 
 
 def count_flops(graph):

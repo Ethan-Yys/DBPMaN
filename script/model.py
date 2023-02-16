@@ -250,19 +250,19 @@ class Model(object):
         print('model restored from %s' % path)
 
 
-class Model_DBPMaN(Model):
+class Model_DDPM(Model):
     def __init__(self, n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE, use_negsampling=False,
                  use_softmax=True):
-        super(Model_DBPMaN, self).__init__(n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE,
+        super(Model_DDPM, self).__init__(n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE,
                                         ATTENTION_SIZE,
                                         use_negsampling, use_softmax=use_softmax)
         self.mid_sess_his_eb = tf.nn.embedding_lookup(self.mid_embeddings_var,self.mid_sess_his)  # [1024, 18, 10, eb]
         self.cat_sess_his_eb = tf.nn.embedding_lookup(self.cate_embeddings_var, self.cat_sess_his)
         self.mid_sess_his_eb += self.cat_sess_his_eb
-        self.mid_sess_tgt_eb = tf.nn.embedding_lookup(self.mid_embeddings_var, self.mid_sess_tgt) # [1024, 18, eb]
+        self.mid_sess_tgt_eb = tf.nn.embedding_lookup(self.mid_embeddings_var, self.mid_sess_tgt)  # [1024, 18, eb]
         self.cat_sess_tgt_eb = tf.nn.embedding_lookup(self.cate_embeddings_var, self.cat_sess_tgt)
         self.mid_sess_tgt_eb += self.cat_sess_tgt_eb
-        self.fin_mid_sess_eb = tf.nn.embedding_lookup(self.mid_embeddings_var, self.fin_mid_sess) # [1024, 10, eb]
+        self.fin_mid_sess_eb = tf.nn.embedding_lookup(self.mid_embeddings_var, self.fin_mid_sess)  # [1024, 10, eb]
         self.fin_cat_sess_eb = tf.nn.embedding_lookup(self.cate_embeddings_var, self.fin_cat_sess)
         self.fin_mid_sess_eb += self.fin_cat_sess_eb
         # Attention layer
@@ -331,3 +331,84 @@ class Model_DBPMaN(Model):
         self.build_loss(logit, aux_loss=L_D)
 
 
+class Model_DBPMaN(Model):
+    def __init__(self, n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE, use_negsampling=False,
+                 use_softmax=True):
+        super(Model_DBPMaN, self).__init__(n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE,
+                                        ATTENTION_SIZE,
+                                        use_negsampling, use_softmax=use_softmax)
+        self.mid_sess_his_eb = tf.nn.embedding_lookup(self.mid_embeddings_var,self.mid_sess_his)  # [1024, 18, 10, eb]
+        self.cat_sess_his_eb = tf.nn.embedding_lookup(self.cate_embeddings_var, self.cat_sess_his)
+        self.mid_sess_his_eb += self.cat_sess_his_eb
+        self.mid_sess_tgt_eb = tf.nn.embedding_lookup(self.mid_embeddings_var, self.mid_sess_tgt)  # [1024, 18, eb]
+        self.cat_sess_tgt_eb = tf.nn.embedding_lookup(self.cate_embeddings_var, self.cat_sess_tgt)
+        self.mid_sess_tgt_eb += self.cat_sess_tgt_eb
+        self.fin_mid_sess_eb = tf.nn.embedding_lookup(self.mid_embeddings_var, self.fin_mid_sess)  # [1024, 10, eb]
+        self.fin_cat_sess_eb = tf.nn.embedding_lookup(self.cate_embeddings_var, self.fin_cat_sess)
+        self.fin_mid_sess_eb += self.fin_cat_sess_eb
+        # Attention layer
+        # uids, mids, cats, mid_his, cat_his, mid_mask, mid_sess_his, cat_sess_his, sess_mask, fin_mid_sess, fin_cat_sess
+        # self.mid_batch_embedded = tf.nn.embedding_lookup(self.mid_embeddings_var, self.mid_batch_ph)
+
+        session_len = 10
+        session_num = 18
+        with tf.name_scope('Attention_layer'):
+            # 1. Pathway Enhance
+            mid_sess_his_eb = tf.reshape(self.mid_sess_his_eb, [-1, session_len * EMBEDDING_DIM])
+            mid_sess_his_eb_enhance = se_block(mid_sess_his_eb, EMBEDDING_DIM, 'Pathway_Enhance_hist_pre')
+            mid_sess_his_eb_enhance = tf.reshape(mid_sess_his_eb_enhance, [-1, session_num, session_len, EMBEDDING_DIM])
+
+            fin_mid_sess_eb = tf.reshape(self.fin_mid_sess_eb, [-1, session_len * EMBEDDING_DIM])
+            fin_mid_sess_eb_enhance = se_block(fin_mid_sess_eb, EMBEDDING_DIM, 'Pathway_Enhance_tgt_pre')
+            fin_mid_sess_eb_enhance = tf.reshape(fin_mid_sess_eb_enhance, [-1, session_len, EMBEDDING_DIM])
+
+
+
+            # 2. pathway match
+            fin_mid_sess_eb_pool = tf.reduce_mean(fin_mid_sess_eb_enhance, axis=-2, keep_dims=True)  # [B, 1, eb]
+            mid_sess_his_eb_pool = tf.reduce_mean(mid_sess_his_eb_enhance, axis=-2)  # [B, 18, eb]
+            sess_score = tf.matmul(fin_mid_sess_eb_pool, tf.transpose(mid_sess_his_eb_pool, [0, 2, 1]))  # [B, 1, 18]
+            attention_output_0 = din_attention(tf.squeeze(fin_mid_sess_eb_pool, 1), mid_sess_his_eb_pool,
+                                               ATTENTION_SIZE, self.sess_mask, name_scope='attention_output_0')
+            att_fea_0 = tf.reduce_sum(attention_output_0, 1)
+            attention_output_1 = din_attention(self.item_eb, self.item_his_eb, ATTENTION_SIZE, self.mask,
+                                               att_score=tf.squeeze(sess_score, 1), name_scope='attention_output1')
+            att_fea_1 = tf.reduce_sum(attention_output_1, 1)
+
+            k_cluster = 8
+            user_cluster = tf.get_variable('user_cluster_centers',
+                                           shape=[1, k_cluster, EMBEDDING_DIM],
+                                           initializer=tf.random_uniform_initializer(minval=-1e-1, maxval=1e-1),
+                                           )
+            hist_seq_h = mid_sess_his_eb_pool + self.mid_sess_tgt_eb  # [B, 30, 8]
+            hist_seq_mlp = tf.layers.dense(hist_seq_h, EMBEDDING_DIM, activation=tf.nn.tanh, use_bias=True,
+                                           kernel_initializer=tf.random_uniform_initializer(minval=-1e-1, maxval=1e-1),
+                                           bias_initializer=tf.random_uniform_initializer(minval=-1e-1, maxval=1e-1),
+                                           name='hist_seq_mlp')  # [B, 30, 8]
+            hist_seq_w = tf.matmul(user_cluster, tf.transpose(hist_seq_mlp, [0, 2, 1]))  # [B, k, 30]
+
+            pre_seq_h = fin_mid_sess_eb_pool  # [B, 1, 8]
+            pre_seq_mlp = tf.layers.dense(pre_seq_h, EMBEDDING_DIM, activation=tf.nn.tanh, use_bias=True,
+                                          kernel_initializer=tf.random_uniform_initializer(minval=-1e-1, maxval=1e-1),
+                                          bias_initializer=tf.random_uniform_initializer(minval=-1e-1, maxval=1e-1),
+                                          name='pre_seq_mlp')  # [B, 1, 8]
+            pre_seq_w = tf.matmul(user_cluster, tf.transpose(pre_seq_mlp, [0, 2, 1]))  # [B, k, 1]
+
+            cluster_w = tf.matmul(tf.transpose(pre_seq_w, (0, 2, 1)), hist_seq_w)  # [B, 1, 30]
+            attention_output_2 = din_attention(self.item_eb, hist_seq_mlp, ATTENTION_SIZE, self.sess_mask,
+                                               att_score=tf.squeeze(cluster_w, 1), name_scope='attention_output2')
+            att_fea_2 = tf.reduce_sum(attention_output_2, 1)
+
+            cluster_e = tf.matmul(hist_seq_w, hist_seq_h)  # [B, k, 8]
+            e_norm = tf.norm(cluster_e, axis=-1, keep_dims=True)  # [B, k, 1]
+            L_D = (1.0 / k_cluster / k_cluster) * tf.reduce_sum(
+                tf.math.divide_no_nan(tf.matmul(cluster_e, tf.transpose(cluster_e, [0, 2, 1])),
+                                      tf.matmul(e_norm, tf.transpose(e_norm, [0, 2, 1]))))
+
+        inp = tf.concat(
+            [self.uid_batch_embedded, self.item_eb, self.item_his_eb_sum, self.item_eb * self.item_his_eb_sum,
+             att_fea_0, att_fea_1, att_fea_2], -1)
+
+        # Fully connected layer
+        logit = self.build_fcn_net(inp, use_dice=True)
+        self.build_loss(logit, aux_loss=L_D)
