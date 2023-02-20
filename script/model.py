@@ -87,13 +87,13 @@ class Model(object):
             self.cate_batch_ph = tf.placeholder(tf.int32, [None, ], name='cate_batch_ph')
             self.mask = tf.placeholder(tf.float32, [None, None], name='mask')
 
-            self.mid_sess_his = tf.placeholder(tf.int32, [None, None, None], name='mid_sess_his')  # [1024, 18, 10]
-            self.cat_sess_his = tf.placeholder(tf.int32, [None, None, None], name='cat_sess_his')
-            self.sess_mask = tf.placeholder(tf.int32, [None, None], name='sess_mask')
-            self.mid_sess_tgt = tf.placeholder(tf.int32, [None, None], name='mid_sess_tgt')  # [1024, 18]
-            self.cat_sess_tgt = tf.placeholder(tf.int32, [None, None], name='cat_sess_tgt')
-            self.fin_mid_sess = tf.placeholder(tf.int32, [None, None], name='fin_mid_sess')  # [1024, 10]
-            self.fin_cat_sess = tf.placeholder(tf.int32, [None, None], name='fin_cat_sess')
+            self.mid_sess_his = tf.placeholder(tf.int32, [None, 18, 10], name='mid_sess_his')  # [1024, 18, 10]
+            self.cat_sess_his = tf.placeholder(tf.int32, [None, 18, 10], name='cat_sess_his')
+            self.sess_mask = tf.placeholder(tf.int32, [None, 18], name='sess_mask')
+            self.mid_sess_tgt = tf.placeholder(tf.int32, [None, 18], name='mid_sess_tgt')  # [1024, 18]
+            self.cat_sess_tgt = tf.placeholder(tf.int32, [None, 18], name='cat_sess_tgt')
+            self.fin_mid_sess = tf.placeholder(tf.int32, [None, 10], name='fin_mid_sess')  # [1024, 10]
+            self.fin_cat_sess = tf.placeholder(tf.int32, [None, 10], name='fin_cat_sess')
 
             self.seq_len_ph = tf.placeholder(tf.int32, [None], name='seq_len_ph')
             self.target_ph = tf.placeholder(tf.float32, [None, None], name='target_ph')
@@ -266,7 +266,7 @@ class Model(object):
                                                       axis=1))
             self.loss = ctr_loss
 
-            self.loss += aux_loss
+            # self.loss += aux_loss
 
             tf.summary.scalar('loss', self.loss)
             self.optimizer = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss)
@@ -497,7 +497,7 @@ class Model_DBPMaN(Model):
             net = input_layer  # b,18,10,eb or b,10,eb
 
             # net_reshape = tf.reduce_mean(net, axis=-1)  # b,18,10
-            net_reshape = tf.squeeze(tf.concat(tf.split(net, net.shape[-2].value, axis=-2), axis=-1))  # b,18,10*eb
+            net_reshape = tf.squeeze(tf.concat(tf.split(net, net.shape[-2].value, axis=-2), axis=-1), axis=-2)  # b,18,10*eb
             # second loop
             for i in range(len(hidden_units_list)):
                 net_reshape = tf.layers.dense(inputs=net_reshape,
