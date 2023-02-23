@@ -24,7 +24,7 @@ if order_indep:
 
 print("orders: ", orders)
 CALC_MODE = "can"
-device = '/gpu:0'
+device = '/cpu:0'
 
 
 #### CAN config #####
@@ -135,6 +135,26 @@ class Model(object):
                 self.noclk_cate_his_batch_embedded = tf.nn.embedding_lookup(self.cate_embeddings_var,
                                                                             self.noclk_cate_batch_ph)
 
+            ###  co-action ###
+            if self.use_coaction:
+                ph_dict = {
+                    "item": [self.mid_batch_ph, self.mid_his_batch_ph, self.mid_his_batch_embedded],
+                    "cate": [self.cate_batch_ph, self.cate_his_batch_ph, self.cate_his_batch_embedded]
+                }
+                self.mlp_batch_embedded = []
+                with tf.device(device):
+                    self.item_mlp_embeddings_var = tf.get_variable("item_mlp_embedding_var", [n_mid, INDEP_NUM * WEIGHT_EMB_DIM], trainable=True)
+                    self.cate_mlp_embeddings_var = tf.get_variable("cate_mlp_embedding_var", [n_cate, INDEP_NUM * WEIGHT_EMB_DIM], trainable=True)
+
+                    self.mlp_batch_embedded.append(tf.nn.embedding_lookup(self.item_mlp_embeddings_var, ph_dict['item'][0]))
+                    self.mlp_batch_embedded.append(tf.nn.embedding_lookup(self.cate_mlp_embeddings_var, ph_dict['cate'][0]))
+
+                    self.input_batch_embedded = []
+                    self.item_input_embeddings_var = tf.get_variable("item_input_embedding_var", [n_mid, weight_emb_w[0][0] * INDEP_NUM], trainable=True)
+                    self.cate_input_embeddings_var = tf.get_variable("cate_input_embedding_var", [n_cate, weight_emb_w[0][0] * INDEP_NUM], trainable=True)
+                    self.input_batch_embedded.append(tf.nn.embedding_lookup(self.item_input_embeddings_var, ph_dict['item'][1]))
+                    self.input_batch_embedded.append(tf.nn.embedding_lookup(self.cate_input_embeddings_var, ph_dict['cate'][1]))
+
         self.item_eb = tf.concat([self.mid_batch_embedded, self.cate_batch_embedded], 1)
         self.item_his_eb = tf.concat([self.mid_his_batch_embedded, self.cate_his_batch_embedded], 2)
         self.item_his_eb_sum = tf.reduce_sum(self.item_his_eb, 1)
@@ -151,6 +171,28 @@ class Model(object):
             self.noclk_his_eb_sum = tf.reduce_sum(self.noclk_his_eb_sum_1, 1)
 
         self.cross = []
+        if self.use_coaction:
+            input_batch = self.input_batch_embedded
+            tmp_sum, tmp_seq = [], []
+            if INDEP_NUM == 2:
+                for i, mlp_batch in enumerate(self.mlp_batch_embedded):
+                    for j, input_batch in enumerate(self.input_batch_embedded):
+                        coaction_sum, coaction_seq = gen_coaction(
+                            mlp_batch[:, WEIGHT_EMB_DIM * j:  WEIGHT_EMB_DIM * (j + 1)],
+                            input_batch[:, :, weight_emb_w[0][0] * i: weight_emb_w[0][0] * (i + 1)], EMBEDDING_DIM,
+                            mode=CALC_MODE, mask=self.mask)
+                        tmp_sum.append(coaction_sum)
+                        tmp_seq.append(coaction_seq)
+            else:
+                for i, (mlp_batch, input_batch) in enumerate(zip(self.mlp_batch_embedded, self.input_batch_embedded)):
+                    coaction_sum, coaction_seq = gen_coaction(mlp_batch[:, : INDEP_NUM * WEIGHT_EMB_DIM],
+                                                              input_batch[:, :, : weight_emb_w[0][0]], EMBEDDING_DIM,
+                                                              mode=CALC_MODE, mask=self.mask)
+                    tmp_sum.append(coaction_sum)
+                    tmp_seq.append(coaction_seq)
+
+            self.coaction_sum = tf.concat(tmp_sum, axis=1)
+            self.cross.append(self.coaction_sum)
         self.logger = set_logger()
 
     def attention_din_nomask_3dims(self, cur_poi_seq_fea_col, hist_poi_seq_fea_col,
@@ -252,7 +294,7 @@ class Model(object):
         dnn3 = tf.layers.dense(dnn2, 2 if self.use_softmax else 1, activation=None, name='f3')
         return dnn3
 
-    def build_loss(self, inp, aux_loss=None):
+    def build_loss(self, inp):
 
         with tf.name_scope('Metrics'):
             # Cross-entropy loss and optimizer initialization
@@ -332,6 +374,52 @@ class Model(object):
         saver.restore(sess, save_path=path)
         print('model restored from %s' % path)
 
+
+class Model_DIN(Model):
+    def __init__(self, n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE, use_negsampling=False, use_softmax=True):
+        super(Model_DIN, self).__init__(n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE,
+                                           ATTENTION_SIZE,
+                                           use_negsampling, use_softmax=use_softmax)
+
+        # Attention layer
+        with tf.name_scope('Attention_layer'):
+            attention_output = din_attention(self.item_eb, self.item_his_eb, ATTENTION_SIZE, self.mask)
+            att_fea = tf.reduce_sum(attention_output, 1)
+            tf.summary.histogram('att_fea', att_fea)
+        inp = tf.concat([self.uid_batch_embedded, self.item_eb, self.item_his_eb_sum, self.item_eb * self.item_his_eb_sum, att_fea], -1)
+        # Fully connected layer
+        logit = self.build_fcn_net(inp, use_dice=True)
+        self.build_loss(logit)
+
+class Model_DIEN(Model):
+    def __init__(self, n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE, use_negsampling=False, use_coaction=False):
+        super(Model_DIEN, self).__init__(n_uid, n_mid, n_cate,
+                                                          EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE,
+                                                          use_negsampling, use_coaction=use_coaction)
+
+        # RNN layer(-s)
+        with tf.name_scope('rnn_1'):
+            rnn_outputs, _ = dynamic_rnn(GRUCell(HIDDEN_SIZE), inputs=self.item_his_eb,
+                                         sequence_length=self.seq_len_ph, dtype=tf.float32,
+                                         scope="gru1")
+            tf.summary.histogram('GRU_outputs', rnn_outputs)
+
+        # Attention layer
+        with tf.name_scope('Attention_layer_1'):
+            att_outputs, alphas = din_fcn_attention(self.item_eb, rnn_outputs, ATTENTION_SIZE, self.mask,
+                                                    softmax_stag=1, stag='1_1', mode='LIST', return_alphas=True)
+            tf.summary.histogram('alpha_outputs', alphas)
+
+        with tf.name_scope('rnn_2'):
+            rnn_outputs2, final_state2 = dynamic_rnn(VecAttGRUCell(HIDDEN_SIZE), inputs=rnn_outputs,
+                                                     att_scores = tf.expand_dims(alphas, -1),
+                                                     sequence_length=self.seq_len_ph, dtype=tf.float32,
+                                                     scope="gru2")
+            tf.summary.histogram('GRU2_Final_State', final_state2)
+
+        inp = tf.concat([self.uid_batch_embedded, self.item_eb, self.item_his_eb_sum, self.item_eb * self.item_his_eb_sum, final_state2]+self.cross, 1)
+        prop = self.build_fcn_net(inp, use_dice=True)
+        self.build_loss(prop)
 
 class Model_DDPM(Model):
     def __init__(self, n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE, use_negsampling=False,

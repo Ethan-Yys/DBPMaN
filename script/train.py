@@ -162,6 +162,12 @@ def train(
         n_uid, n_mid, n_cat = train_data.get_n()
         if model_type == 'DDPM':
             model = Model_DDPM(n_uid, n_mid, n_cat, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE)
+        elif model_type == 'DIN':
+            model = Model_DIN(n_uid, n_mid, n_cat, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE)
+        elif model_type == 'DIEN':
+            model = Model_DIEN(n_uid, n_mid, n_cat, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE)
+        elif model_type == 'CAN':
+            model = Model_DIEN(n_uid, n_mid, n_cat, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE, use_coaction=True)
         elif model_type == 'DBPMaN':
             model = Model_DBPMaN(n_uid, n_mid, n_cat, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE)
         else:
