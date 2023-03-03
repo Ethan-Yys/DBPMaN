@@ -182,7 +182,7 @@ def train(
         # start_time = time.time()
         iter = 0
         lr = 0.001
-        for itr in range(100):
+        for itr in range(1):
             print("-------------------------")
             print("-------------------------")
             print("-------------------------")
@@ -202,7 +202,7 @@ def train(
                 # time2 = time.time()
                 # print(iter, "data_prepare_finished")
                 # sys.stdout.flush()
-                loss, acc, aux_loss = model.train(sess, [uids, mids, cats, mid_his, cat_his, mid_mask, mid_sess_his,
+                loss, acc, cl_loss = model.train(sess, [uids, mids, cats, mid_his, cat_his, mid_mask, mid_sess_his,
                                                          cat_sess_his, mid_sess_tgt, cat_sess_tgt, sess_mask,
                                                          fin_mid_sess, fin_cat_sess, target, sl, lr])
                 # print(iter, "trained")
@@ -215,11 +215,11 @@ def train(
 
                 loss_sum += loss
                 accuracy_sum += acc
-                aux_loss_sum += aux_loss
+                aux_loss_sum += cl_loss
                 iter += 1
                 sys.stdout.flush()
                 if (iter % 50) == 0:
-                    print('iter: %d ----> train_loss: %.4f ---- train_accuracy: %.4f ---- train_aux_loss: %.4f' % (
+                    print('iter: %d ----> train_loss: %.4f ---- train_accuracy: %.4f ---- train_cl_loss: %.4f' % (
                         iter, loss_sum / 50, accuracy_sum / 50, aux_loss_sum / 50))
                     loss_sum = 0.0
                     accuracy_sum = 0.0
@@ -228,7 +228,7 @@ def train(
                     auc_, loss_, acc_, aux_ = eval(sess, test_data, model)
                     print(
                             'iter: %d --- test_auc: %.4f ---- test_loss: %.4f ---- test_accuracy: %.4f ---- '
-                            'test_aux_loss: %.4f' % (
+                            'test_cl_loss: %.4f' % (
                                 iter, auc_, loss_, acc_, aux_))
                     loss_sum = 0.0
                     accuracy_sum = 0.0
