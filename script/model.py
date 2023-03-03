@@ -8,6 +8,7 @@ from rnn import dynamic_rnn
 from utils import *
 from Dice import dice
 from logger import set_logger
+import numpy as np
 import math
 
 logger = set_logger()
@@ -24,7 +25,7 @@ if order_indep:
 
 print("orders: ", orders)
 CALC_MODE = "can"
-device = '/cpu:0'
+device = '/gpu:0'
 
 
 #### CAN config #####
@@ -97,6 +98,7 @@ class Model(object):
 
             self.seq_len_ph = tf.placeholder(tf.int32, [None], name='seq_len_ph')
             self.target_ph = tf.placeholder(tf.float32, [None, None], name='target_ph')
+            self.cl_label = tf.placeholder(tf.float32, [None, None], name='cl_label_ph')
             # self.carte_batch_ph = tf.placeholder(tf.int32, [None, None, None], name='carte_ph')
             self.lr = tf.placeholder(tf.float64, [])
             self.use_negsampling = use_negsampling
@@ -143,17 +145,27 @@ class Model(object):
                 }
                 self.mlp_batch_embedded = []
                 with tf.device(device):
-                    self.item_mlp_embeddings_var = tf.get_variable("item_mlp_embedding_var", [n_mid, INDEP_NUM * WEIGHT_EMB_DIM], trainable=True)
-                    self.cate_mlp_embeddings_var = tf.get_variable("cate_mlp_embedding_var", [n_cate, INDEP_NUM * WEIGHT_EMB_DIM], trainable=True)
+                    self.item_mlp_embeddings_var = tf.get_variable("item_mlp_embedding_var",
+                                                                   [n_mid, INDEP_NUM * WEIGHT_EMB_DIM], trainable=True)
+                    self.cate_mlp_embeddings_var = tf.get_variable("cate_mlp_embedding_var",
+                                                                   [n_cate, INDEP_NUM * WEIGHT_EMB_DIM], trainable=True)
 
-                    self.mlp_batch_embedded.append(tf.nn.embedding_lookup(self.item_mlp_embeddings_var, ph_dict['item'][0]))
-                    self.mlp_batch_embedded.append(tf.nn.embedding_lookup(self.cate_mlp_embeddings_var, ph_dict['cate'][0]))
+                    self.mlp_batch_embedded.append(
+                        tf.nn.embedding_lookup(self.item_mlp_embeddings_var, ph_dict['item'][0]))
+                    self.mlp_batch_embedded.append(
+                        tf.nn.embedding_lookup(self.cate_mlp_embeddings_var, ph_dict['cate'][0]))
 
                     self.input_batch_embedded = []
-                    self.item_input_embeddings_var = tf.get_variable("item_input_embedding_var", [n_mid, weight_emb_w[0][0] * INDEP_NUM], trainable=True)
-                    self.cate_input_embeddings_var = tf.get_variable("cate_input_embedding_var", [n_cate, weight_emb_w[0][0] * INDEP_NUM], trainable=True)
-                    self.input_batch_embedded.append(tf.nn.embedding_lookup(self.item_input_embeddings_var, ph_dict['item'][1]))
-                    self.input_batch_embedded.append(tf.nn.embedding_lookup(self.cate_input_embeddings_var, ph_dict['cate'][1]))
+                    self.item_input_embeddings_var = tf.get_variable("item_input_embedding_var",
+                                                                     [n_mid, weight_emb_w[0][0] * INDEP_NUM],
+                                                                     trainable=True)
+                    self.cate_input_embeddings_var = tf.get_variable("cate_input_embedding_var",
+                                                                     [n_cate, weight_emb_w[0][0] * INDEP_NUM],
+                                                                     trainable=True)
+                    self.input_batch_embedded.append(
+                        tf.nn.embedding_lookup(self.item_input_embeddings_var, ph_dict['item'][1]))
+                    self.input_batch_embedded.append(
+                        tf.nn.embedding_lookup(self.cate_input_embeddings_var, ph_dict['cate'][1]))
 
         self.item_eb = tf.concat([self.mid_batch_embedded, self.cate_batch_embedded], 1)
         self.item_his_eb = tf.concat([self.mid_his_batch_embedded, self.cate_his_batch_embedded], 2)
@@ -194,6 +206,7 @@ class Model(object):
             self.coaction_sum = tf.concat(tmp_sum, axis=1)
             self.cross.append(self.coaction_sum)
         self.logger = set_logger()
+        self.cl_loss = 0
 
     def attention_din_nomask_3dims(self, cur_poi_seq_fea_col, hist_poi_seq_fea_col,
                                    din_deep_layers, din_activation, name_scope,
@@ -294,7 +307,7 @@ class Model(object):
         dnn3 = tf.layers.dense(dnn2, 2 if self.use_softmax else 1, activation=None, name='f3')
         return dnn3
 
-    def build_loss(self, inp):
+    def build_loss(self, inp, cl_emb=None):
 
         with tf.name_scope('Metrics'):
             # Cross-entropy loss and optimizer initialization
@@ -307,7 +320,14 @@ class Model(object):
                                                        tf.log(1 - self.y_hat + 0.00000001) * (1 - self.target_ph)],
                                                       axis=1))
             self.loss = ctr_loss
+            if cl_emb:
+                sim_mat = tf.matmul(cl_emb[0], tf.transpose(cl_emb[1], [1, 0]))
 
+                cl_loss = tf.nn.softmax_cross_entropy_with_logits(labels=self.cl_label, logits=sim_mat)
+                self.cl_loss = tf.reduce_mean(cl_loss)
+                # cl_loss = tf.cond(tf.train.get_global_step() <= tf.constant(100000, dtype=tf.int64),
+                #                   lambda: tf.constant(0.0), lambda: cl_loss)
+                self.loss += 0.1 * self.cl_loss
             # self.loss += aux_loss
 
             tf.summary.scalar('loss', self.loss)
@@ -321,7 +341,7 @@ class Model(object):
             tf.summary.scalar('accuracy', self.accuracy)
 
     def train(self, sess, inps):
-        loss, accuracy, _ = sess.run([self.loss, self.accuracy, self.optimizer], feed_dict={
+        loss, accuracy, cl_loss, _ = sess.run([self.loss, self.accuracy, self.cl_loss, self.optimizer], feed_dict={
             # uids, mids, cats, mid_his, cat_his, mid_mask, mid_sess_his, cat_sess_his, sess_mask, fin_mid_sess,
             # fin_cat_sess, target, sl, lr
 
@@ -340,13 +360,14 @@ class Model(object):
             self.fin_cat_sess: inps[12],
             self.target_ph: inps[13],
             self.seq_len_ph: inps[14],
-            self.lr: inps[15]
+            self.lr: inps[15],
+            self.cl_label: np.eye(inps[0].shape[0])
             # self.carte_batch_ph: inps[11]
         })
-        return loss, accuracy, 0
+        return loss, accuracy, cl_loss
 
     def calculate(self, sess, inps):
-        probs, loss, accuracy = sess.run([self.y_hat, self.loss, self.accuracy], feed_dict={
+        probs, loss, accuracy, cl_loss = sess.run([self.y_hat, self.loss, self.accuracy, self.cl_loss], feed_dict={
             self.uid_batch_ph: inps[0],
             self.mid_batch_ph: inps[1],
             self.cate_batch_ph: inps[2],
@@ -362,8 +383,9 @@ class Model(object):
             self.fin_cat_sess: inps[12],
             self.target_ph: inps[13],
             self.seq_len_ph: inps[14],
+            self.cl_label: np.eye(inps[0].shape[0])
         })
-        return probs, loss, accuracy, 0
+        return probs, loss, accuracy, cl_loss
 
     def save(self, sess, path):
         saver = tf.train.Saver()
@@ -376,26 +398,31 @@ class Model(object):
 
 
 class Model_DIN(Model):
-    def __init__(self, n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE, use_negsampling=False, use_softmax=True):
+    def __init__(self, n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE, use_negsampling=False,
+                 use_softmax=True):
         super(Model_DIN, self).__init__(n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE,
-                                           ATTENTION_SIZE,
-                                           use_negsampling, use_softmax=use_softmax)
+                                        ATTENTION_SIZE,
+                                        use_negsampling, use_softmax=use_softmax)
 
         # Attention layer
         with tf.name_scope('Attention_layer'):
             attention_output = din_attention(self.item_eb, self.item_his_eb, ATTENTION_SIZE, self.mask)
             att_fea = tf.reduce_sum(attention_output, 1)
             tf.summary.histogram('att_fea', att_fea)
-        inp = tf.concat([self.uid_batch_embedded, self.item_eb, self.item_his_eb_sum, self.item_eb * self.item_his_eb_sum, att_fea], -1)
+        inp = tf.concat(
+            [self.uid_batch_embedded, self.item_eb, self.item_his_eb_sum, self.item_eb * self.item_his_eb_sum, att_fea],
+            -1)
         # Fully connected layer
         logit = self.build_fcn_net(inp, use_dice=True)
         self.build_loss(logit)
 
+
 class Model_DIEN(Model):
-    def __init__(self, n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE, use_negsampling=False, use_coaction=False):
+    def __init__(self, n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE, use_negsampling=False,
+                 use_coaction=False):
         super(Model_DIEN, self).__init__(n_uid, n_mid, n_cate,
-                                                          EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE,
-                                                          use_negsampling, use_coaction=use_coaction)
+                                         EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE,
+                                         use_negsampling, use_coaction=use_coaction)
 
         # RNN layer(-s)
         with tf.name_scope('rnn_1'):
@@ -412,14 +439,17 @@ class Model_DIEN(Model):
 
         with tf.name_scope('rnn_2'):
             rnn_outputs2, final_state2 = dynamic_rnn(VecAttGRUCell(HIDDEN_SIZE), inputs=rnn_outputs,
-                                                     att_scores = tf.expand_dims(alphas, -1),
+                                                     att_scores=tf.expand_dims(alphas, -1),
                                                      sequence_length=self.seq_len_ph, dtype=tf.float32,
                                                      scope="gru2")
             tf.summary.histogram('GRU2_Final_State', final_state2)
 
-        inp = tf.concat([self.uid_batch_embedded, self.item_eb, self.item_his_eb_sum, self.item_eb * self.item_his_eb_sum, final_state2]+self.cross, 1)
+        inp = tf.concat(
+            [self.uid_batch_embedded, self.item_eb, self.item_his_eb_sum, self.item_eb * self.item_his_eb_sum,
+             final_state2] + self.cross, 1)
         prop = self.build_fcn_net(inp, use_dice=True)
         self.build_loss(prop)
+
 
 class Model_DDPM(Model):
     def __init__(self, n_uid, n_mid, n_cate, EMBEDDING_DIM, HIDDEN_SIZE, ATTENTION_SIZE, use_negsampling=False,
@@ -499,7 +529,7 @@ class Model_DDPM(Model):
 
         # Fully connected layer
         logit = self.build_fcn_net(inp, use_dice=True)
-        self.build_loss(logit, aux_loss=L_D)
+        self.build_loss(logit)
 
 
 class Model_DBPMaN(Model):
@@ -524,7 +554,20 @@ class Model_DBPMaN(Model):
         # session_len = 10
         # session_num = 18
         with tf.name_scope('DBPMaN_Model'):
-            # 1. Pathway Enhance Module
+            # generate mask sequence [b, 18, 10]
+            cl_mask1 = tf.where(tf.random.uniform(tf.shape(self.mid_sess_his), minval=0, maxval=1) > 0.2,
+                                tf.ones_like(self.mid_sess_his, tf.int32),
+                                tf.zeros_like(self.mid_sess_his, tf.int32))
+            cl_mask2 = tf.where(tf.random.uniform(tf.shape(self.mid_sess_his), minval=0, maxval=1) > 0.2,
+                                tf.ones_like(self.mid_sess_his, tf.int32),
+                                tf.zeros_like(self.mid_sess_his, tf.int32))
+
+            mid_sess_his_eb_cl1 = tf.nn.embedding_lookup(self.mid_embeddings_var, self.mid_sess_his * cl_mask1) \
+                                  + self.cat_sess_his_eb
+            mid_sess_his_eb_cl2 = tf.nn.embedding_lookup(self.mid_embeddings_var, self.mid_sess_his * cl_mask2) \
+                                  + self.cat_sess_his_eb
+
+            # 1. Pathway Enhance Module & generate cL_loss
             # 1.1 history path enhance
             # [b, 18, 10 ,eb]
             mid_sess_his_eb_enhance, nclk_his_att_score = self.attention_din_nomask_3dims(
@@ -534,14 +577,44 @@ class Model_DBPMaN(Model):
                 'pem_his_att',
                 'din_mlp')
 
+            mid_sess_his_eb_enhance_cl1, nclk_his_att_score_cl1 = self.attention_din_nomask_3dims(
+                tf.stop_gradient(self.mid_sess_tgt_eb),
+                mid_sess_his_eb_cl1,
+                [64, 32], 'relu',
+                'pem_his_att',
+                'din_mlp')
+
+            mid_sess_his_eb_enhance_cl2, nclk_his_att_score_cl2 = self.attention_din_nomask_3dims(
+                tf.stop_gradient(self.mid_sess_tgt_eb),
+                mid_sess_his_eb_cl2,
+                [64, 32], 'relu',
+                'pem_his_att',
+                'din_mlp')
+
             logger.info(
                 "# pem_his_att_output:{}; pem_his_att_score:{}".format(mid_sess_his_eb_enhance, nclk_his_att_score))
 
             mask_pw_his_router = self.pathway_router_simple(mid_sess_his_eb_enhance, [32], 10,
                                                             'his_router')  # b,18,10,1
-            mid_sess_his_eb_enhance = tf.reduce_sum((mid_sess_his_eb_enhance * mask_pw_his_router), axis=-2)  # b,18,eb
 
+            mask_pw_his_router_cl1 = self.pathway_router_simple(mid_sess_his_eb_enhance_cl1, [32], 10,
+                                                                'his_router')  # b,18,10,1
+
+            mask_pw_his_router_cl2 = self.pathway_router_simple(mid_sess_his_eb_enhance_cl2, [32], 10,
+                                                                'his_router')  # b,18,10,1
+
+            mid_sess_his_eb_enhance = tf.reduce_sum((mid_sess_his_eb_enhance * mask_pw_his_router), axis=-2)  # b,18,eb
             out_fea_0 = tf.reduce_mean(mid_sess_his_eb_enhance, axis=-2)
+
+            emb_cl1 = tf.reshape(mid_sess_his_eb_enhance_cl1 * mask_pw_his_router_cl1, [-1, 18, 10, EMBEDDING_DIM])
+            # b,18,10,eb
+            emb_cl2 = tf.reshape(mid_sess_his_eb_enhance_cl2 * mask_pw_his_router_cl2, [-1, 18, 10, EMBEDDING_DIM])
+            # emb_cl1 = tf.reduce_mean(emb_cl1, axis=-2)
+            # emb_cl2 = tf.reduce_mean(emb_cl2, axis=-2)
+            emb_cl1 = tf.nn.l2_normalize(emb_cl1, dim=3, epsilon=1e-10, name='nn_l2_norm_cl1')
+            emb_cl2 = tf.nn.l2_normalize(emb_cl2, dim=3, epsilon=1e-10, name='nn_l2_norm_cl2')
+            emb_cl1 = tf.reshape(emb_cl1, [-1, 18*10*EMBEDDING_DIM])
+            emb_cl2 = tf.reshape(emb_cl2, [-1, 18*10*EMBEDDING_DIM])
             # 1.2 cur path enhance
             # fin_mid_sess_eb = tf.reshape(self.fin_mid_sess_eb, [-1, session_len * EMBEDDING_DIM])
             # fin_mid_sess_eb_enhance = se_block(fin_mid_sess_eb, EMBEDDING_DIM, 'Pathway_Enhance_tgt_pre')
@@ -578,14 +651,15 @@ class Model_DBPMaN(Model):
 
         # Fully connected layer
         logit = self.build_fcn_net(inp, use_dice=True)
-        self.build_loss(logit)
+        self.build_loss(logit, cl_emb=[emb_cl1, emb_cl2])
 
     def pathway_router_simple(self, input_layer, hidden_units_list, output_dim, name):
         with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
             net = input_layer  # b,18,10,eb or b,10,eb
 
             # net_reshape = tf.reduce_mean(net, axis=-1)  # b,18,10
-            net_reshape = tf.squeeze(tf.concat(tf.split(net, net.shape[-2].value, axis=-2), axis=-1), axis=-2)  # b,18,10*eb
+            net_reshape = tf.squeeze(tf.concat(tf.split(net, net.shape[-2].value, axis=-2), axis=-1),
+                                     axis=-2)  # b,18,10*eb
             # second loop
             for i in range(len(hidden_units_list)):
                 net_reshape = tf.layers.dense(inputs=net_reshape,
