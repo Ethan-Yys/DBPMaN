@@ -1,6 +1,6 @@
 import numpy
 import json
-import cPickle as pkl
+import pickle as pkl
 import random
 
 import gzip
@@ -9,11 +9,11 @@ import shuffle
 
 
 def unicode_to_utf8(d):
-    return dict((key.encode("UTF-8"), value) for (key, value) in d.items())
+    return dict((key.encode("UTF-8"), value) for (key, value) in list(d.items()))
 
 
 def dict_unicode_to_utf8(d):
-    return dict(((key[0].encode("UTF-8"), key[1].encode("UTF-8")), value) for (key, value) in d.items())
+    return dict(((key[0].encode("UTF-8"), key[1].encode("UTF-8")), value) for (key, value) in list(d.items()))
 
 
 def load_dict(filename):
@@ -111,7 +111,7 @@ class DataIterator:
         else:
             self.source.seek(0)
 
-    def next(self):
+    def __next__(self):
         if self.end_of_data:
             self.end_of_data = False
             self.reset()
@@ -121,7 +121,7 @@ class DataIterator:
         target = []
 
         if len(self.source_buffer) == 0:
-            for k_ in xrange(self.k):
+            for k_ in range(self.k):
                 ss = self.source.readline()
                 if ss == "":
                     break
@@ -181,27 +181,6 @@ class DataIterator:
                     cat_sess_tgt.insert(0, cat_list[idx])
                     idx -= 5
 
-                '''
-                noclk_mid_list = []
-                noclk_cat_list = []
-                for pos_mid in mid_list:
-                    noclk_tmp_mid = []
-                    noclk_tmp_cat = []
-                    noclk_index = 0
-                    while True:
-                        noclk_mid_indx = random.randint(0, len(self.mid_list_for_random) - 1)
-                        noclk_mid = self.mid_list_for_random[noclk_mid_indx]
-                        if noclk_mid == pos_mid:
-                            continue
-                        noclk_tmp_mid.append(noclk_mid)
-                        noclk_tmp_cat.append(self.meta_id_map[noclk_mid])
-                        noclk_index += 1
-                        if noclk_index >= 5:
-                            break
-                    noclk_mid_list.append(noclk_tmp_mid)
-                    noclk_cat_list.append(noclk_tmp_cat)
-                '''
-
                 source.append([uid, mid, cat, mid_list, cat_list, mid_sess_list, cat_sess_list, mid_sess_tgt, cat_sess_tgt, fin_mid_sess, fin_cat_sess])
                 if self.label_type == 1:
                     target.append([float(ss[0])])
@@ -215,5 +194,5 @@ class DataIterator:
 
         # all sentence pairs in maxibatch filtered out because of length
         if len(source) == 0 or len(target) == 0:
-            source, target = self.next()
+            source, target = next(self)
         return source, target
